@@ -9,24 +9,17 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 
-# -------------------------
-# Paths & templating
-# -------------------------
 THIS_DIR = os.path.dirname(os.path.abspath(__file__))
 TEMPLATES_DIR = os.path.join(THIS_DIR, "templates")
 templates = Jinja2Templates(directory=TEMPLATES_DIR)
 
-# Try likely locations for data.db (local & Vercel bundle)
 _DB_CANDIDATES = [
-    os.path.normpath(os.path.join(THIS_DIR, "..", "data.db")),  # repo root
-    os.path.normpath(os.path.join(THIS_DIR, "data.db")),        # bundled next to function
-    os.path.normpath(os.path.join(os.getcwd(), "data.db")),     # working dir
+    os.path.normpath(os.path.join(THIS_DIR, "..", "data.db")),
+    os.path.normpath(os.path.join(THIS_DIR, "data.db")),
+    os.path.normpath(os.path.join(os.getcwd(), "data.db")),
 ]
 DB_PATH = next((p for p in _DB_CANDIDATES if os.path.exists(p)), None)
 
-# -------------------------
-# Validation / constants
-# -------------------------
 ZIP_RE = re.compile(r"^\d{5}$")
 
 ALLOWED_MEASURES = {
@@ -44,7 +37,6 @@ ALLOWED_MEASURES = {
     "Daily fine particulate matter",
 }
 
-# Exact DB column names (from county_health_rankings.csv) -> desired JSON keys
 PROJECTION_MAP = {
     "Confidence_Interval_Lower_Bound": "confidence_interval_lower_bound",
     "Confidence_Interval_Upper_Bound": "confidence_interval_upper_bound",
@@ -63,9 +55,6 @@ PROJECTION_MAP = {
 }
 PROJECTION_SQL = ", ".join([f'chr."{dbcol}" AS "{alias}"' for dbcol, alias in PROJECTION_MAP.items()])
 
-# -------------------------
-# Helpers
-# -------------------------
 def is_valid_zip(z: str) -> bool:
     return bool(ZIP_RE.fullmatch(z or ""))
 
@@ -76,16 +65,12 @@ def get_conn() -> sqlite3.Connection:
     conn.row_factory = sqlite3.Row
     return conn
 
-# -------------------------
-# FastAPI app
-# -------------------------
 app = FastAPI(
     title="County Data API",
     description="POST /county_data with JSON {zip, measure_name} returns rows from county_health_rankings joined via zip_county.",
-    version="1.2.0",
+    version="1.3.0",
 )
 
-# CORS (fine to keep permissive for testing)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -98,16 +83,16 @@ app.add_middleware(
 @app.get("/", response_class=HTMLResponse, tags=["ui"])
 def ui(request: Request):
     return templates.TemplateResponse(
-        "index.html",  # you replaced/are using index.html
+        "index.html",
         {
             "request": request,
             "allowed_measures": sorted(ALLOWED_MEASURES),
+            "allow_none_measure": True,   # <-- tell the template to render a “no measure” option
             "db_found": bool(DB_PATH),
             "db_path": DB_PATH,
         },
     )
 
-# Optional: tiny JSON health endpoint
 @app.get("/health", tags=["meta"])
 def health():
     return {
@@ -118,13 +103,10 @@ def health():
         "database_path": DB_PATH,
     }
 
-# ---------- Core query logic ----------
 def _county_data_logic(payload: Dict[str, Any]):
-    # 418 “teapot” supersedes everything
     if payload.get("coffee") == "teapot":
         raise HTTPException(status_code=418, detail="I'm a teapot.")
 
-    # Required fields
     zip_code = payload.get("zip")
     measure_name = payload.get("measure_name")
 
@@ -140,8 +122,6 @@ def _county_data_logic(payload: Dict[str, Any]):
     if not isinstance(measure_name, str) or measure_name not in ALLOWED_MEASURES:
         raise HTTPException(status_code=400, detail="measure_name must be one of the allowed strings.")
 
-    # Per your schema dump:
-    #   zip_county."county_code"  = county_health_rankings."fipscode"
     sql = f"""
         SELECT {PROJECTION_SQL}
         FROM county_health_rankings AS chr
@@ -167,7 +147,6 @@ def _county_data_logic(payload: Dict[str, Any]):
 
     return rows
 
-# ---------- API ----------
 @app.post("/county_data", tags=["county"])
 def county_data(payload: Dict[str, Any] = Body(..., media_type="application/json")):
     return _county_data_logic(payload)
