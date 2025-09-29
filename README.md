@@ -1,50 +1,46 @@
-# County Data API (FastAPI + SQLite)
+# Numeric Converter - cs1060-hw2-base
 
-This is a minimal API exposing your `data.db` via a `/county_data` endpoint.
+A web-based application that converts numbers between different formats including:
+- English text (e.g., "one hundred twenty-three")
+- Binary
+- Octal
+- Decimal
+- Hexadecimal
+- Base64
 
-## Local setup
+## Setup
 
+1. Install the required dependencies. We recommend following the best Python practice of a virtual environment. (This assumes Python3.)
 ```bash
-# In this folder, ensure data.db is present (copy from Part 1)
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
-uvicorn app:app --reload
-# open http://127.0.0.1:8000/docs
+python3 -m venv "hw2-env"
+. hw2-env/bin/activate
+pip3 install -r requirements.txt
 ```
 
-## Query examples
+2. Run the application:
+```bash
+python api/index.py
+```
 
-- All counties (first 100 rows):
-  `GET /county_data`
+3. Open your web browser and navigate to `http://localhost:5000`
 
-- Filter by state:
-  `GET /county_data?state=Massachusetts`
+## Usage
 
-- Search county name substring:
-  `GET /county_data?q=Los`
+1. Enter your input value in the text box
+2. Select the input format from the dropdown menu
+3. Select the desired output format from the second dropdown menu
+4. Click "Convert" to see the result
 
-- Choose table:
-  `GET /county_data?table=zip_county&select=zip,county,state_abbreviation&limit=20`
+## Examples
 
-- Order results:
-  `GET /county_data?order_by=state&order_dir=desc`
+- Convert decimal to binary: Input "42" with input type "decimal" and output type "binary"
+- Convert text to decimal: Input "forty two" with input type "text" and output type "decimal"
+- Convert hexadecimal to text: Input "2a" with input type "hexadecimal" and output type "text"
 
-## Deploy to Render (recommended quick start)
+# Deploying
+The application should deploy to [Vercel](https://vercel.com?utm_source=github&utm_medium=readme&utm_campaign=vercel-examples) 
+out of the box.
 
-1. Push this folder (including `data.db`) to a new GitHub repo.
-2. Create a new **Web Service** on Render, connect your repo.
-3. Environment: **Python**.
-4. Build command: `pip install -r requirements.txt`
-5. Start command: `uvicorn app:app --host 0.0.0.0 --port $PORT`
-6. Once deployed, visit `/docs` on your Render URL to try it.
-
-> Tip: You may set `DATA_DB_PATH` as an environment variable if your DB lives at a non-default path.
-
-## Deploy to Vercel (optional, serverless)
-
-Vercel's Python support can run ASGI apps. One simple approach is using a [server](https://vercel.com/docs) adapter; however, for SQLite-heavy workloads a small Render dyno is simpler. If you still want Vercel, create `vercel.json` with a Python build and route everything to `app.py`. Ensure `data.db` is committed so the function can read it (read-only).
-
-## Security note
-
-This prototype is read-only (SQLite opened in `mode=ro`) and accepts only whitelisted columns.
+Just Add New... > Project, import the Git repository, and off you go.
+Note that Vercel's Hobby plan means your private repository needs to be
+in your personal GitHub account, not the organizational account.

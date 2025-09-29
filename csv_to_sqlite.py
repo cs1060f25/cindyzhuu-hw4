@@ -3,158 +3,104 @@
 csv_to_sqlite.py
 
 Usage:
-    python csv_to_sqlite.py <database_name.sqlite3> <input.csv>
+    python3 csv_to_sqlite.py <database.db> <input.csv>
 
-Description:
-    - Reads a CSV (with a header row) and writes it into a SQLite database.
-    - Table name is derived from the CSV filename (stem), sanitized to be SQL-friendly.
-    - Column names are taken directly from the CSV header (assumed valid SQL identifiers).
-    - Simple type inference per column: INTEGER, REAL, or TEXT (default). Empty strings -> NULL.
-    - If a table with the same name exists, it will be dropped and recreated.
+- Expects a valid CSV with a header row of SQL-safe column names (no spaces/escaping).
+- Creates (or overwrites) a SQLite database at the given path.
+- Creates one table named after the CSV filename (sanitized), with TEXT columns.
+- Inserts all rows from the CSV.
+
+Example:
+    python3 csv_to_sqlite.py data.db people.csv
+    # -> creates table "people" inside data.db
 """
+
+import argparse
 import csv
 import os
 import re
 import sqlite3
-import sys
-from typing import List, Tuple
+from pathlib import Path
+from typing import List, Optional
 
-def sanitize_table_name(path: str) -> str:
-    """Derive a SQL-friendly table name from a filename (without extension)."""
-    stem = os.path.splitext(os.path.basename(path))[0]
-    # Lowercase, replace non-alphanumeric with underscores, collapse repeats, strip edges.
-    name = re.sub(r'[^0-9a-zA-Z]+', '_', stem).strip('_').lower()
-    # Ensure it doesn't start with a digit
-    if re.match(r'^\d', name):
-        name = f"t_{name}"
-    # Fallback
-    return name or "imported_table"
 
-def infer_type(value: str) -> str:
-    """Return the inferred SQLite affinity for a single value: INTEGER, REAL, or TEXT."""
-    if value is None:
-        return "TEXT"
-    s = value.strip()
-    if s == "":
-        return "TEXT"
-    # Integers
-    try:
-        # Ensure no decimals in integer check
-        if re.match(r'^[+-]?\d+$', s):
-            int(s)
-            return "INTEGER"
-    except Exception:
-        pass
-    # Reals
-    try:
-        # Allow decimals and scientific notation
-        if re.match(r'^[+-]?(\d+(\.\d*)?|\.\d+)([eE][+-]?\d+)?$', s):
-            float(s)
-            return "REAL"
-    except Exception:
-        pass
-    return "TEXT"
-
-def reconcile_types(types: List[str]) -> str:
+def sanitize_table_name(name: str) -> str:
     """
-    Given a list of observed atomic types for a column, decide the column type.
-    Priority: if any TEXT -> TEXT; elif any REAL -> REAL; else INTEGER.
+    Make a safe SQL identifier for the table name:
+    - replace non-alphanumeric chars with underscores
+    - ensure it doesn't start with a digit
+    - collapse multiple underscores
+    - strip leading/trailing underscores
     """
-    if "TEXT" in types:
-        return "TEXT"
-    if "REAL" in types:
-        return "REAL"
-    return "INTEGER"
+    base = re.sub(r"\W+", "_", name)  # non-alphanumeric -> _
+    base = re.sub(r"_+", "_", base).strip("_") or "data"
+    if re.match(r"^\d", base):
+        base = f"t_{base}"
+    return base
 
-def read_csv_header_and_rows(csv_path: str) -> Tuple[List[str], List[List[str]]]:
-    with open(csv_path, newline='', encoding='utf-8') as f:
-        reader = csv.reader(f)
-        header = next(reader)  # may raise StopIteration on empty file (undefined behavior per spec)
-        rows = [row for row in reader]
-    return header, rows
 
-def infer_schema(header: List[str], rows: List[List[str]]) -> List[str]:
-    """Infer SQLite types for each column based on the observed row values."""
-    n_cols = len(header)
-    observed: List[List[str]] = [[] for _ in range(n_cols)]
-    for row in rows:
-        # Pad/truncate to header length defensively
-        row = (row + [""] * n_cols)[:n_cols]
-        for i, val in enumerate(row):
-            t = infer_type(val)
-            # Only record stronger signals (INTEGER/REAL/TEXT), but keep TEXT if seen
-            observed[i].append(t)
-    col_types = [reconcile_types(list(set(col_obs))) for col_obs in observed]
-    return col_types
+def create_table(conn: sqlite3.Connection, table: str, columns: List[str]) -> None:
+    # Columns are assumed already valid SQL identifiers per the prompt.
+    cols_sql = ", ".join(f"{col} TEXT" for col in columns)
+    conn.execute(f"DROP TABLE IF EXISTS {table}")
+    conn.execute(f"CREATE TABLE {table} ({cols_sql})")
 
-def make_create_table_sql(table: str, columns: List[Tuple[str, str]]) -> str:
-    cols_sql = ", ".join([f'"{name}" {ctype}' for name, ctype in columns])
-    return f'CREATE TABLE "{table}" ({cols_sql});'
+
+def insert_rows(conn: sqlite3.Connection, table: str, columns: List[str], rows: List[List[Optional[str]]]) -> int:
+    placeholders = ", ".join(["?"] * len(columns))
+    cols_list = ", ".join(columns)
+    sql = f"INSERT INTO {table} ({cols_list}) VALUES ({placeholders})"
+    with conn:  # ensures a transaction
+        conn.executemany(sql, rows)
+    return len(rows)
+
+
+def read_csv_rows(csv_path: Path) -> (List[str], List[List[Optional[str]]]):
+    # Use utf-8-sig to gracefully handle BOM if present
+    with csv_path.open("r", encoding="utf-8-sig", newline="") as f:
+        reader = csv.DictReader(f)
+        if not reader.fieldnames:
+            raise ValueError("CSV file must have a header row.")
+        columns = [h.strip() for h in reader.fieldnames]
+        data: List[List[Optional[str]]] = []
+        for row in reader:
+            # Preserve column order; missing keys become None
+            data.append([row.get(col, None) for col in columns])
+    return columns, data
+
 
 def main():
-    if len(sys.argv) != 3:
-        print("Usage: python csv_to_sqlite.py <database_name.sqlite3> <input.csv>")
-        sys.exit(1)
+    parser = argparse.ArgumentParser(description="Import a CSV into a SQLite database.")
+    parser.add_argument("database", help="Output SQLite database filename (e.g., data.db)")
+    parser.add_argument("csvfile", help="Input CSV filename (with header row)")
+    args = parser.parse_args()
 
-    db_path = sys.argv[1]
-    csv_path = sys.argv[2]
+    db_path = Path(args.database).resolve()
+    csv_path = Path(args.csvfile).resolve()
 
-    if not os.path.exists(csv_path):
-        print(f"CSV not found: {csv_path}")
-        sys.exit(1)
+    if not csv_path.exists():
+        raise SystemExit(f"CSV file not found: {csv_path}")
 
-    table_name = sanitize_table_name(csv_path)
-    header, rows = read_csv_header_and_rows(csv_path)
-    col_types = infer_schema(header, rows)
-    columns = list(zip(header, col_types))
+    table_name = sanitize_table_name(csv_path.stem)
 
-    # Connect to SQLite and (re)create table
-    conn = sqlite3.connect(db_path)
+    columns, rows = read_csv_rows(csv_path)
+
+    # Connect and import
+    # Ensure directory exists for the DB path (if a nested path was given)
+    db_path.parent.mkdir(parents=True, exist_ok=True)
+
+    conn = sqlite3.connect(str(db_path))
     try:
-        conn.execute(f'DROP TABLE IF EXISTS "{table_name}";')
-        conn.execute(make_create_table_sql(table_name, columns))
-
-        # Prepare insert
-        placeholders = ", ".join(["?"] * len(header))
-        quoted_cols = ", ".join(f'"{h}"' for h in header)
-        insert_sql = f'INSERT INTO "{table_name}" ({quoted_cols}) VALUES ({placeholders});'
-
-        # Normalize rows: empty string -> None
-        def normalize_row(row):
-            row = (row + [""] * len(header))[:len(header)]
-            norm = []
-            for v, ctype in zip(row, col_types):
-                if v is None:
-                    norm.append(None)
-                    continue
-                s = v.strip()
-                if s == "":
-                    norm.append(None)
-                else:
-                    if ctype == "INTEGER":
-                        try:
-                            norm.append(int(s))
-                            continue
-                        except Exception:
-                            pass
-                    if ctype == "REAL":
-                        try:
-                            norm.append(float(s))
-                            continue
-                        except Exception:
-                            pass
-                    norm.append(s)
-            return norm
-
-        with conn:
-            conn.executemany(insert_sql, (normalize_row(r) for r in rows))
-
-        # Basic summary
-        cur = conn.execute(f'SELECT COUNT(*) FROM "{table_name}";')
-        count = cur.fetchone()[0]
-        print(f"Imported {count} rows into table '{table_name}' in '{db_path}'.")
+        create_table(conn, table_name, columns)
+        count = insert_rows(conn, table_name, columns, rows)
     finally:
         conn.close()
+
+    print(f"Created database: {db_path}")
+    print(f"Created table: {table_name}")
+    print(f"Columns: {', '.join(columns)}")
+    print(f"Inserted rows: {count}")
+
 
 if __name__ == "__main__":
     main()
