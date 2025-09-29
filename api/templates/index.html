@@ -1,139 +1,120 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Numeric Converter</title>
-    <style>
-        body {
-            font-family: Arial, sans-serif;
-            max-width: 800px;
-            margin: 0 auto;
-            padding: 20px;
-            background-color: #f5f5f5;
-        }
-        .container {
-            background-color: white;
-            padding: 20px;
-            border-radius: 8px;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-        }
-        h1 {
-            color: #333;
-            text-align: center;
-        }
-        .form-group {
-            margin-bottom: 15px;
-        }
-        label {
-            display: block;
-            margin-bottom: 5px;
-            color: #555;
-        }
-        select, input, button {
-            width: 100%;
-            padding: 8px;
-            margin-bottom: 10px;
-            border: 1px solid #ddd;
-            border-radius: 4px;
-            box-sizing: border-box;
-        }
-        button {
-            background-color: #4CAF50;
-            color: white;
-            border: none;
-            cursor: pointer;
-            padding: 10px;
-        }
-        button:hover {
-            background-color: #45a049;
-        }
-        .result {
-            margin-top: 20px;
-            padding: 15px;
-            border: 1px solid #ddd;
-            border-radius: 4px;
-            background-color: #f9f9f9;
-        }
-        .error {
-            color: red;
-            margin-top: 10px;
-        }
-    </style>
+  <meta charset="utf-8"/>
+  <title>County Data Playground</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <style>
+    :root { font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; }
+    body { margin: 0; background: #0b1220; color: #e6e9ee; }
+    .wrap { max-width: 880px; margin: 40px auto; padding: 0 16px; }
+    h1 { font-size: 1.75rem; margin: 0 0 8px; }
+    .card { background: #121a2b; border: 1px solid #1f2c46; border-radius: 14px; padding: 20px; }
+    label { display:block; font-size: .9rem; margin-top: 12px; color:#a9b4c6;}
+    input, select, button, textarea {
+      width: 100%; padding: 10px 12px; border-radius: 10px; border: 1px solid #2a3b60;
+      background: #0f1727; color:#e6e9ee; outline: none;
+    }
+    input:focus, select:focus, textarea:focus { border-color: #3e64ff; box-shadow: 0 0 0 3px rgba(62,100,255,.2); }
+    button { cursor: pointer; font-weight: 600; background: #3e64ff; border-color: #3e64ff; margin-top: 16px; }
+    button.secondary { background: #172039; border-color:#2a3b60; margin-left: 8px; }
+    .grid { display:grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+    @media (max-width: 800px) { .grid { grid-template-columns: 1fr; } }
+    pre { background: #0a1120; border: 1px solid #1f2c46; padding: 14px; border-radius: 10px; overflow:auto; }
+    .status { margin-top: 10px; }
+    .hint { font-size: .85rem; color:#9fb1d1; margin: 6px 0 0; }
+    .pill { display:inline-block; padding: 3px 8px; border:1px solid #2a3b60; border-radius:999px; font-size:.75rem; color:#a9b4c6; }
+  </style>
 </head>
 <body>
-    <div class="container">
-        <h1>Numeric Converter</h1>
-        <div class="form-group">
-            <label for="input">Input Value:</label>
-            <input type="text" id="input" placeholder="Enter value to convert">
+  <div class="wrap">
+    <h1>County Data Playground</h1>
+    <p class="hint">
+      This form sends a <span class="pill">POST /county_data</span> with JSON and shows the response.
+    </p>
+
+    <div class="card">
+      <div class="grid">
+        <div>
+          <label for="zip">ZIP (5 digits)</label>
+          <input id="zip" placeholder="e.g., 02138" pattern="\\d{5}" maxlength="5" value="02138"/>
         </div>
-        <div class="form-group">
-            <label for="inputType">Input Type:</label>
-            <select id="inputType">
-                <option value="text">English Text</option>
-                <option value="binary">Binary</option>
-                <option value="octal">Octal</option>
-                <option value="decimal">Decimal</option>
-                <option value="hexadecimal">Hexadecimal</option>
-                <option value="base64">Base64</option>
-            </select>
+        <div>
+          <label for="measure">Measure</label>
+          <select id="measure">
+            {% for m in allowed_measures %}
+              <option value="{{ m }}" {% if m == 'Adult obesity' %}selected{% endif %}>{{ m }}</option>
+            {% endfor %}
+          </select>
         </div>
-        <div class="form-group">
-            <label for="outputType">Output Type:</label>
-            <select id="outputType">
-                <option value="text">English Text</option>
-                <option value="binary">Binary</option>
-                <option value="octal">Octal</option>
-                <option value="decimal">Decimal</option>
-                <option value="hexadecimal">Hexadecimal</option>
-                <option value="base64">Base64</option>
-            </select>
-        </div>
-        <button onclick="convert()">Convert</button>
-        <div id="result" class="result" style="display: none;"></div>
-        <div id="error" class="error" style="display: none;"></div>
+      </div>
+
+      <label style="display:flex; align-items:center; gap:8px; margin-top:12px;">
+        <input id="teapot" type="checkbox" style="width:auto;"/>
+        Send <code>{"coffee":"teapot"}</code> (expect 418)
+      </label>
+
+      <div style="display:flex; gap:8px;">
+        <button id="send">Send Request</button>
+        <button id="copyCurl" class="secondary" type="button">Copy curl</button>
+      </div>
+
+      <div class="status" id="status"></div>
+      <pre id="out" style="margin-top:12px;">(response will appear here)</pre>
     </div>
 
-    <script>
-        async function convert() {
-            const input = document.getElementById('input').value;
-            const inputType = document.getElementById('inputType').value;
-            const outputType = document.getElementById('outputType').value;
-            const resultDiv = document.getElementById('result');
-            const errorDiv = document.getElementById('error');
+    <p class="hint" style="margin-top:12px;">
+      Keys: <code>zip</code> and <code>measure_name</code> (required). Optional: <code>coffee="teapot"</code> → 418.
+    </p>
+  </div>
 
-            // Hide both result and error initially
-            resultDiv.style.display = 'none';
-            errorDiv.style.display = 'none';
+  <script>
+    const $ = (id) => document.getElementById(id);
+    const base = window.location.origin + "/county_data";
 
-            try {
-                const response = await fetch('/convert', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                    },
-                    body: JSON.stringify({
-                        input: input,
-                        inputType: inputType,
-                        outputType: outputType
-                    })
-                });
+    function makeBody() {
+      const zip = $("zip").value.trim();
+      const measure_name = $("measure").value;
+      const body = { zip, measure_name };
+      if ($("teapot").checked) body.coffee = "teapot";
+      return body;
+    }
 
-                const data = await response.json();
-                
-                if (data.error) {
-                    errorDiv.textContent = data.error;
-                    errorDiv.style.display = 'block';
-                } else {
-                    resultDiv.textContent = `Result: ${data.result}`;
-                    resultDiv.style.display = 'block';
-                }
-            } catch (error) {
-                errorDiv.textContent = 'An error occurred during conversion.';
-                errorDiv.style.display = 'block';
-            }
+    function curlCmd(body) {
+      const data = JSON.stringify(body).replace(/"/g, '\\"');
+      return `curl -i -X POST "${base}" -H "content-type: application/json" -d "${data}"`;
+    }
+
+    $("copyCurl").addEventListener("click", async () => {
+      const body = makeBody();
+      await navigator.clipboard.writeText(curlCmd(body));
+      $("status").textContent = "Copied curl to clipboard.";
+      setTimeout(() => $("status").textContent = "", 1500);
+    });
+
+    $("send").addEventListener("click", async () => {
+      const body = makeBody();
+      $("out").textContent = "(sending...)";
+      $("status").textContent = "";
+      try {
+        const res = await fetch(base, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(body),
+        });
+        const text = await res.text();
+        $("status").textContent = `HTTP ${res.status}`;
+        try {
+          const json = JSON.parse(text);
+          $("out").textContent = JSON.stringify(json, null, 2);
+        } catch {
+          $("out").textContent = text;
         }
-    </script>
+      } catch (e) {
+        $("status").textContent = "Request failed";
+        $("out").textContent = String(e);
+      }
+    });
+  </script>
 </body>
 </html>

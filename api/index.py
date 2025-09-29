@@ -1,26 +1,32 @@
-# app.py
+# api/index.py
 import os
 import re
 import sqlite3
 from typing import Dict, Any
 
-from fastapi import FastAPI, HTTPException, Body, status
+from fastapi import FastAPI, HTTPException, Body, status, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import HTMLResponse
+from fastapi.templating import Jinja2Templates
 
 # -------------------------
-# Config & Helpers
+# Paths & templating
 # -------------------------
-
 THIS_DIR = os.path.dirname(os.path.abspath(__file__))
+TEMPLATES_DIR = os.path.join(THIS_DIR, "templates")
+templates = Jinja2Templates(directory=TEMPLATES_DIR)
 
-# Try likely locations for data.db (local & Vercel bundle cases)
+# Try likely locations for data.db (local & Vercel bundle)
 _DB_CANDIDATES = [
-    os.path.normpath(os.path.join(THIS_DIR, "data.db")),        # same folder
     os.path.normpath(os.path.join(THIS_DIR, "..", "data.db")),  # repo root
+    os.path.normpath(os.path.join(THIS_DIR, "data.db")),        # bundled next to function
     os.path.normpath(os.path.join(os.getcwd(), "data.db")),     # working dir
 ]
 DB_PATH = next((p for p in _DB_CANDIDATES if os.path.exists(p)), None)
 
+# -------------------------
+# Validation / constants
+# -------------------------
 ZIP_RE = re.compile(r"^\d{5}$")
 
 ALLOWED_MEASURES = {
@@ -57,37 +63,53 @@ PROJECTION_MAP = {
 }
 PROJECTION_SQL = ", ".join([f'chr."{dbcol}" AS "{alias}"' for dbcol, alias in PROJECTION_MAP.items()])
 
+# -------------------------
+# Helpers
+# -------------------------
 def is_valid_zip(z: str) -> bool:
     return bool(ZIP_RE.fullmatch(z or ""))
 
 def get_conn() -> sqlite3.Connection:
     if not DB_PATH or not os.path.exists(DB_PATH):
-        raise HTTPException(status_code=500, detail="Database file data.db not found.")
+        raise HTTPException(status_code=500, detail="Database file data.db not found in function bundle.")
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
     return conn
 
 # -------------------------
-# FastAPI App
+# FastAPI app
 # -------------------------
-
 app = FastAPI(
     title="County Data API",
-    description="POST /county_data with JSON {zip, measure_name} returns rows from county_health_rankings via zip_county join.",
-    version="1.0.2",
+    description="POST /county_data with JSON {zip, measure_name} returns rows from county_health_rankings joined via zip_county.",
+    version="1.2.0",
 )
 
-# Optional CORS for browser testing
+# CORS (fine to keep permissive for testing)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
     allow_credentials=False,
-    allow_methods=["POST", "OPTIONS", "GET"],
+    allow_methods=["GET", "POST", "OPTIONS"],
     allow_headers=["*"],
 )
 
-@app.get("/", tags=["meta"])
-def root():
+# ---------- Browser UI (uses api/templates/index.html) ----------
+@app.get("/", response_class=HTMLResponse, tags=["ui"])
+def ui(request: Request):
+    return templates.TemplateResponse(
+        "index.html",  # you replaced/are using index.html
+        {
+            "request": request,
+            "allowed_measures": sorted(ALLOWED_MEASURES),
+            "db_found": bool(DB_PATH),
+            "db_path": DB_PATH,
+        },
+    )
+
+# Optional: tiny JSON health endpoint
+@app.get("/health", tags=["meta"])
+def health():
     return {
         "ok": True,
         "message": "Use POST /county_data with JSON.",
@@ -96,24 +118,30 @@ def root():
         "database_path": DB_PATH,
     }
 
+# ---------- Core query logic ----------
 def _county_data_logic(payload: Dict[str, Any]):
-    # 418 supersedes everything
+    # 418 “teapot” supersedes everything
     if payload.get("coffee") == "teapot":
         raise HTTPException(status_code=418, detail="I'm a teapot.")
 
     # Required fields
     zip_code = payload.get("zip")
     measure_name = payload.get("measure_name")
-    if zip_code is None or measure_name is None:
-        raise HTTPException(status_code=400, detail="Both 'zip' and 'measure_name' are required.")
 
-    # Validate
+    if zip_code is None or measure_name is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Both 'zip' and 'measure_name' are required.",
+        )
+
     if not isinstance(zip_code, str) or not is_valid_zip(zip_code):
         raise HTTPException(status_code=400, detail="zip must be a 5-digit string.")
+
     if not isinstance(measure_name, str) or measure_name not in ALLOWED_MEASURES:
         raise HTTPException(status_code=400, detail="measure_name must be one of the allowed strings.")
 
-    # ✅ Correct join: zc."county_code" (zip_county) = chr."fipscode" (county_health_rankings)
+    # Per your schema dump:
+    #   zip_county."county_code"  = county_health_rankings."fipscode"
     sql = f"""
         SELECT {PROJECTION_SQL}
         FROM county_health_rankings AS chr
@@ -132,10 +160,14 @@ def _county_data_logic(payload: Dict[str, Any]):
             raise HTTPException(status_code=500, detail=f"Database error: {e}")
 
     if not rows:
-        raise HTTPException(status_code=404, detail=f"No data found for zip={zip_code} & measure_name='{measure_name}'.")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"No data found for zip={zip_code} & measure_name='{measure_name}'.",
+        )
 
     return rows
 
+# ---------- API ----------
 @app.post("/county_data", tags=["county"])
 def county_data(payload: Dict[str, Any] = Body(..., media_type="application/json")):
     return _county_data_logic(payload)
