@@ -2,10 +2,10 @@
   "functions": {
     "api/index.py": {
       "runtime": "python3.11",
-      "includeFiles": "data.db"
+      "includeFiles": ["data.db"]
     }
   },
   "routes": [
-    { "src": "/(.*)", "dest": "/api/index.py" }
+    { "src": "/(.*)", "dest": "api/index.py" }
   ]
 }
