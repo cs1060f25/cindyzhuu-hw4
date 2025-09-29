@@ -1,11 +1,5 @@
 {
-  "functions": {
-    "api/index.py": {
-      "runtime": "python3.11",
-      "includeFiles": ["data.db"]
-    }
-  },
-  "routes": [
-    { "src": "/(.*)", "dest": "api/index.py" }
+  "rewrites": [
+    { "source": "/(.*)", "destination": "/api/index" }
   ]
 }
