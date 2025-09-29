@@ -1,0 +1,7 @@
+[functions]
+  node_bundler = "esbuild"
+
+[[redirects]]
+  from = "/county_data"
+  to = "/.netlify/functions/county_data"
+  status = 200
