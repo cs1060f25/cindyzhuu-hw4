@@ -31,6 +31,7 @@
     <h1>County Data Playground</h1>
     <p class="hint">
       This form sends a <span class="pill">POST /county_data</span> with JSON and shows the response.
+      {% if not db_found %}<br><strong style="color:#ffb4b4">Warning:</strong> data.db was not detected on the server.{% endif %}
     </p>
 
     <div class="card">
@@ -42,6 +43,10 @@
         <div>
           <label for="measure">Measure</label>
           <select id="measure">
+            {% if allow_none_measure %}
+              <!-- Selecting this leaves measure_name out of the JSON, which your API will 400 (by spec) -->
+              <option value="">— No measure (omit measure_name) —</option>
+            {% endif %}
             {% for m in allowed_measures %}
               <option value="{{ m }}" {% if m == 'Adult obesity' %}selected{% endif %}>{{ m }}</option>
             {% endfor %}
@@ -64,7 +69,7 @@
     </div>
 
     <p class="hint" style="margin-top:12px;">
-      Keys: <code>zip</code> and <code>measure_name</code> (required). Optional: <code>coffee="teapot"</code> → 418.
+      Required keys: <code>zip</code> and <code>measure_name</code>. Selecting “No measure” intentionally omits <code>measure_name</code> to demonstrate the spec’s 400 error.
     </p>
   </div>
 
@@ -74,8 +79,10 @@
 
     function makeBody() {
       const zip = $("zip").value.trim();
-      const measure_name = $("measure").value;
-      const body = { zip, measure_name };
+      const measure_value = $("measure").value;
+      const body = { zip };
+      // Only include measure_name if a non-empty option is chosen
+      if (measure_value) body.measure_name = measure_value;
       if ($("teapot").checked) body.coffee = "teapot";
       return body;
     }
@@ -105,8 +112,7 @@
         const text = await res.text();
         $("status").textContent = `HTTP ${res.status}`;
         try {
-          const json = JSON.parse(text);
-          $("out").textContent = JSON.stringify(json, null, 2);
+          $("out").textContent = JSON.stringify(JSON.parse(text), null, 2);
         } catch {
           $("out").textContent = text;
         }

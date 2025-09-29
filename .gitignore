@@ -1,1 +1,38 @@
-.vercel
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.pkl
+*.log
+
+# SQLite database
+data.db
+
+# Virtual environment
+.venv/
+venv/
+ENV/
+env/
+
+# Jupyter notebooks checkpoints
+.ipynb_checkpoints/
+
+# OS / Editor files
+.DS_Store
+Thumbs.db
+*.swp
+
+# Vercel / build artifacts
+.vercel/
+.cache/
+dist/
+build/
+
+# Node modules (if you have Netlify/Vercel functions with JS)
+node_modules/
+
+# Coverage / testing
+.coverage
+htmlcov/
+pytest_cache/
